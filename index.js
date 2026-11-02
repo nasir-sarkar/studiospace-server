@@ -383,3 +383,154 @@ app.post("/api/studios/:id/reviews", verifyToken, async (req, res) => {
   await refreshStudioRating(req.params.id);
   res.status(201).send(result);
 });
+
+app.post("/api/bookings", verifyToken, async (req, res) => {
+  const { studioId, date, startTime, endTime, note } = req.body;
+
+  const _id = toObjectId(studioId);
+  const studio = _id ? await studioCollection.findOne({ _id }) : null;
+  if (!studio) {
+    return res.status(404).send({ msg: "Studio not found!" });
+  }
+  if (studio.ownerEmail === req.user.email) {
+    return res
+      .status(403)
+      .send({ msg: "You cannot book your own studio." });
+  }
+  if (!isValidDate(date) || !isValidTime(startTime) || !isValidTime(endTime)) {
+    return res
+      .status(400)
+      .send({ msg: "Please choose a valid date, start time and end time." });
+  }
+  if (date < new Date().toISOString().slice(0, 10)) {
+    return res.status(400).send({ msg: "Booking date cannot be in the past." });
+  }
+
+  const startMinutes = toMinutes(startTime);
+  const endMinutes = toMinutes(endTime);
+  if (endMinutes - startMinutes < 60) {
+    return res
+      .status(400)
+      .send({ msg: "A booking must be at least one hour long." });
+  }
+
+  const booking = {
+    studioId: String(studioId),
+    date,
+    startTime,
+    endTime,
+    startMinutes,
+    endMinutes,
+  };
+
+  const conflict = await findConfirmedConflict(booking);
+  if (conflict) {
+    return res.status(409).send({ msg: conflictMessage(conflict) });
+  }
+
+  const hours = (endMinutes - startMinutes) / 60;
+  const subtotal = roundMoney(hours * studio.hourlyRate);
+
+  const result = await bookingCollection.insertOne({
+    ...booking,
+    studioTitle: studio.title,
+    studioImage: studio.imageUrl,
+    studioLocation: studio.location,
+    studioCategory: studio.category,
+    hostEmail: studio.ownerEmail,
+    hostName: studio.ownerName,
+    userEmail: req.user.email,
+    userName: req.user.name,
+    userImage: req.user.image || "",
+    note: String(note || "").trim(),
+    hours,
+    hourlyRate: studio.hourlyRate,
+    securityDeposit: studio.securityDeposit,
+    subtotal,
+    totalPrice: roundMoney(subtotal + studio.securityDeposit),
+    status: "Pending",
+    createdAt: new Date(),
+  });
+  res.status(201).send(result);
+});
+
+app.get("/api/my-bookings", verifyToken, async (req, res) => {
+  const result = await bookingCollection
+    .find({ userEmail: req.user.email })
+    .sort({ createdAt: -1 })
+    .toArray();
+  res.send(result);
+});
+
+app.patch("/api/bookings/:id/cancel", verifyToken, async (req, res) => {
+  const _id = toObjectId(req.params.id);
+  const booking = _id ? await bookingCollection.findOne({ _id }) : null;
+  if (!booking) {
+    return res.status(404).send({ msg: "Booking not found!" });
+  }
+  if (booking.userEmail !== req.user.email) {
+    return res
+      .status(403)
+      .send({ msg: "You can only cancel your own bookings." });
+  }
+  if (booking.status !== "Pending") {
+    return res
+      .status(400)
+      .send({ msg: "Only pending bookings can be cancelled." });
+  }
+
+  const result = await bookingCollection.updateOne(
+    { _id },
+    { $set: { status: "Cancelled", updatedAt: new Date() } },
+  );
+  res.json(result);
+});
+
+app.get("/api/host-bookings", verifyToken, async (req, res) => {
+  const result = await bookingCollection
+    .find({ hostEmail: req.user.email })
+    .sort({ createdAt: -1 })
+    .toArray();
+  res.send(result);
+});
+
+app.patch("/api/bookings/:id/status", verifyToken, async (req, res) => {
+  const { status } = req.body;
+  if (!BOOKING_STATUSES.includes(status) || status === "Pending") {
+    return res.status(400).send({ msg: "Invalid booking status." });
+  }
+
+  const _id = toObjectId(req.params.id);
+  const booking = _id ? await bookingCollection.findOne({ _id }) : null;
+  if (!booking) {
+    return res.status(404).send({ msg: "Booking not found!" });
+  }
+  if (booking.hostEmail !== req.user.email) {
+    return res
+      .status(403)
+      .send({ msg: "Only the studio host can update this booking." });
+  }
+
+  const allowed = {
+    Pending: ["Confirmed", "Cancelled"],
+    Confirmed: ["Completed", "Cancelled"],
+  };
+  if (!(allowed[booking.status] || []).includes(status)) {
+    return res.status(400).send({
+      msg: `A ${booking.status.toLowerCase()} booking cannot be marked as ${status.toLowerCase()}.`,
+    });
+  }
+
+  if (status === "Confirmed") {
+    const conflict = await findConfirmedConflict(booking, _id);
+    if (conflict) {
+      return res.status(409).send({ msg: conflictMessage(conflict) });
+    }
+  }
+
+  const result = await bookingCollection.updateOne(
+    { _id },
+    { $set: { status, updatedAt: new Date() } },
+  );
+  res.json(result);
+});
