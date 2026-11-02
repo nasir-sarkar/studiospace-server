@@ -593,3 +593,22 @@ app.get("/api/dashboard", verifyToken, async (req, res) => {
     earnings: roundMoney(earnings),
   });
 });
+
+app.get("/", (req, res) => {
+  res.send({ message: "Server is running fine!" });
+});
+
+app.use((req, res) => {
+  res.status(404).send({ msg: "Route not found!" });
+});
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).send({ msg: "Server Error!" });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is running at ${PORT}`);
+});
+
+export default app;
