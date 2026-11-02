@@ -567,3 +567,29 @@ app.delete("/api/wishlist/:studioId", verifyToken, async (req, res) => {
   });
   res.send(result);
 });
+
+app.get("/api/dashboard", verifyToken, async (req, res) => {
+  const email = req.user.email;
+  const [listings, myBookings, hostBookings, saved] = await Promise.all([
+    studioCollection.countDocuments({ ownerEmail: email }),
+    bookingCollection.countDocuments({ userEmail: email }),
+    bookingCollection.find({ hostEmail: email }).toArray(),
+    wishlistCollection.countDocuments({ userEmail: email }),
+  ]);
+
+  const earnings = hostBookings
+    .filter((item) => ["Confirmed", "Completed"].includes(item.status))
+    .reduce((sum, item) => sum + item.subtotal, 0);
+
+  res.send({
+    listings,
+    myBookings,
+    saved,
+    pendingRequests: hostBookings.filter((item) => item.status === "Pending")
+      .length,
+    confirmedSessions: hostBookings.filter(
+      (item) => item.status === "Confirmed",
+    ).length,
+    earnings: roundMoney(earnings),
+  });
+});
