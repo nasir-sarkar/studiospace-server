@@ -263,3 +263,78 @@ app.get("/api/studios/:id", async (req, res) => {
   }
   res.send(result);
 });
+
+app.post("/api/studios", verifyToken, async (req, res) => {
+  const { data, error } = buildStudioPayload(req.body);
+  if (error) {
+    return res.status(400).send({ msg: error });
+  }
+
+  const studio = {
+    ...data,
+    ownerEmail: req.user.email,
+    ownerName: req.user.name,
+    ownerImage: req.user.image || "",
+    rating: 0,
+    reviewCount: 0,
+    createdAt: new Date(),
+  };
+  const result = await studioCollection.insertOne(studio);
+  res.status(201).send(result);
+});
+
+app.put("/api/studios/:id", verifyToken, async (req, res) => {
+  const _id = toObjectId(req.params.id);
+  if (!_id) {
+    return res.status(404).send({ msg: "Studio not found!" });
+  }
+
+  const studio = await studioCollection.findOne({ _id });
+  if (!studio) {
+    return res.status(404).send({ msg: "Studio not found!" });
+  }
+  if (studio.ownerEmail !== req.user.email) {
+    return res.status(403).send({ msg: "You can only edit your own studios." });
+  }
+
+  const { data, error } = buildStudioPayload(req.body);
+  if (error) {
+    return res.status(400).send({ msg: error });
+  }
+
+  const result = await studioCollection.updateOne(
+    { _id },
+    { $set: { ...data, updatedAt: new Date() } },
+  );
+  res.json(result);
+});
+
+app.delete("/api/studios/:id", verifyToken, async (req, res) => {
+  const _id = toObjectId(req.params.id);
+  if (!_id) {
+    return res.status(404).send({ msg: "Studio not found!" });
+  }
+
+  const studio = await studioCollection.findOne({ _id });
+  if (!studio) {
+    return res.status(404).send({ msg: "Studio not found!" });
+  }
+  if (studio.ownerEmail !== req.user.email) {
+    return res
+      .status(403)
+      .send({ msg: "You can only delete your own studios." });
+  }
+
+  const result = await studioCollection.deleteOne({ _id });
+  await reviewCollection.deleteMany({ studioId: req.params.id });
+  await wishlistCollection.deleteMany({ studioId: req.params.id });
+  res.json(result);
+});
+
+app.get("/api/my-studios", verifyToken, async (req, res) => {
+  const result = await studioCollection
+    .find({ ownerEmail: req.user.email })
+    .sort({ createdAt: -1 })
+    .toArray();
+  res.send(result);
+});
