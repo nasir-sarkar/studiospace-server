@@ -534,3 +534,36 @@ app.patch("/api/bookings/:id/status", verifyToken, async (req, res) => {
   );
   res.json(result);
 });
+
+app.get("/api/wishlist", verifyToken, async (req, res) => {
+  const saved = await wishlistCollection
+    .find({ userEmail: req.user.email })
+    .sort({ createdAt: -1 })
+    .toArray();
+  const ids = saved.map((item) => toObjectId(item.studioId)).filter(Boolean);
+  const studios = await studioCollection.find({ _id: { $in: ids } }).toArray();
+  res.send(studios);
+});
+
+app.post("/api/wishlist/:studioId", verifyToken, async (req, res) => {
+  const _id = toObjectId(req.params.studioId);
+  const studio = _id ? await studioCollection.findOne({ _id }) : null;
+  if (!studio) {
+    return res.status(404).send({ msg: "Studio not found!" });
+  }
+
+  const result = await wishlistCollection.updateOne(
+    { userEmail: req.user.email, studioId: req.params.studioId },
+    { $setOnInsert: { createdAt: new Date() } },
+    { upsert: true },
+  );
+  res.status(201).send(result);
+});
+
+app.delete("/api/wishlist/:studioId", verifyToken, async (req, res) => {
+  const result = await wishlistCollection.deleteOne({
+    userEmail: req.user.email,
+    studioId: req.params.studioId,
+  });
+  res.send(result);
+});
