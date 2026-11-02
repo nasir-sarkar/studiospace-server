@@ -188,3 +188,27 @@ const findConfirmedConflict = (booking, ignoreId) => {
 const conflictMessage = (conflict) =>
   `This studio is already booked from ${conflict.startTime} to ${conflict.endTime} on ${conflict.date}. Please choose a different time slot.`;
 
+app.post("/api/auth/session", async (req, res) => {
+  const { token } = req.body;
+  if (!token) {
+    return res.status(401).send({ msg: "Unauthorized!" });
+  }
+
+  try {
+    await jwtVerify(token, JWKS);
+  } catch (error) {
+    return res.status(401).send({ msg: "Unauthorized!" });
+  }
+
+  res.cookie(TOKEN_COOKIE, token, { ...cookieOptions, maxAge: SEVEN_DAYS });
+  res.send({ success: true });
+});
+
+app.get("/api/auth/me", verifyToken, (req, res) => {
+  res.send(req.user);
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  res.clearCookie(TOKEN_COOKIE, cookieOptions);
+  res.send({ success: true });
+});
