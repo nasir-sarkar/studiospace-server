@@ -212,3 +212,54 @@ app.post("/api/auth/logout", (req, res) => {
   res.clearCookie(TOKEN_COOKIE, cookieOptions);
   res.send({ success: true });
 });
+
+app.get("/api/studios", async (req, res) => {
+  const { search, category, sort, maxRate } = req.query;
+  const filter = {};
+
+  if (search) {
+    const pattern = new RegExp(escapeRegex(String(search).trim()), "i");
+    filter.$or = [{ title: pattern }, { location: pattern }];
+  }
+  if (category && category !== "all") {
+    filter.category = String(category);
+  }
+  if (Number(maxRate) > 0) {
+    filter.hourlyRate = { $lte: Number(maxRate) };
+  }
+
+  const sorts = {
+    newest: { createdAt: -1 },
+    "price-low": { hourlyRate: 1, createdAt: -1 },
+    "price-high": { hourlyRate: -1, createdAt: -1 },
+    rating: { rating: -1, createdAt: -1 },
+  };
+
+  const result = await studioCollection
+    .find(filter)
+    .sort(sorts[sort] || sorts.newest)
+    .toArray();
+  res.send(result);
+});
+
+app.get("/api/studios/featured", async (req, res) => {
+  const result = await studioCollection
+    .find()
+    .sort({ rating: -1, createdAt: -1 })
+    .limit(6)
+    .toArray();
+  res.send(result);
+});
+
+app.get("/api/studios/:id", async (req, res) => {
+  const _id = toObjectId(req.params.id);
+  if (!_id) {
+    return res.status(404).send({ msg: "Studio not found!" });
+  }
+
+  const result = await studioCollection.findOne({ _id });
+  if (!result) {
+    return res.status(404).send({ msg: "Studio not found!" });
+  }
+  res.send(result);
+});
