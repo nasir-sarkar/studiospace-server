@@ -338,3 +338,48 @@ app.get("/api/my-studios", verifyToken, async (req, res) => {
     .toArray();
   res.send(result);
 });
+
+app.get("/api/studios/:id/reviews", async (req, res) => {
+  const result = await reviewCollection
+    .find({ studioId: req.params.id })
+    .sort({ createdAt: -1 })
+    .toArray();
+  res.send(result);
+});
+
+app.post("/api/studios/:id/reviews", verifyToken, async (req, res) => {
+  const _id = toObjectId(req.params.id);
+  const studio = _id ? await studioCollection.findOne({ _id }) : null;
+  if (!studio) {
+    return res.status(404).send({ msg: "Studio not found!" });
+  }
+  if (studio.ownerEmail === req.user.email) {
+    return res
+      .status(403)
+      .send({ msg: "You cannot review your own studio." });
+  }
+
+  const rating = Number(req.body.rating);
+  const comment = String(req.body.comment || "").trim();
+  if (!(rating >= 1 && rating <= 5) || !comment) {
+    return res
+      .status(400)
+      .send({ msg: "Please add a rating from 1 to 5 and a short comment." });
+  }
+
+  const result = await reviewCollection.updateOne(
+    { studioId: req.params.id, userEmail: req.user.email },
+    {
+      $set: {
+        rating: Math.round(rating),
+        comment,
+        userName: req.user.name,
+        userImage: req.user.image || "",
+        createdAt: new Date(),
+      },
+    },
+    { upsert: true },
+  );
+  await refreshStudioRating(req.params.id);
+  res.status(201).send(result);
+});
